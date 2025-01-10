@@ -5,9 +5,11 @@ from pydub import AudioSegment
 import pandas as pd
 import jieba
 from jieba import posseg
+from snownlp import SnowNLP
 from collections import defaultdict
 import numpy as np
 from tqdm import tqdm
+
 
 # 加载中文停用词
 stopwords_file = "stopwords.txt"
@@ -121,23 +123,46 @@ def preprocess_text(text):
     return " ".join(filtered_words)
 
 
-def process_audio_file(audio_path):
+def sentiment_analysis(text):
+    """进行情感识别"""
+    s = SnowNLP(text)
+    return s.sentiments
+
+
+def process_audio_file(audio_path, participant_id):
     """处理音频文件的主函数"""
     audio = read_audio_file(audio_path)
     segments = split_audio_into_segments(audio)
     full_text = transcribe_audio(segments)
     cleaned_text = clean_text(full_text)
     split_by_question = split_text_by_question(cleaned_text)
-    paragraphs = split_text_into_paragraphs(split_by_question)
-    preprocessed_paragraphs = [preprocess_text(para) for para in paragraphs]
-    return preprocessed_paragraphs
+
+    all_data = []
+    for question_id, sub_text in enumerate(split_by_question, 1):
+        sentences = []
+        current_sentence = ""
+        for char in sub_text:
+            if char in ['。', '！', '？']:
+                current_sentence += char
+                sentences.append(current_sentence)
+                current_sentence = ""
+            else:
+                current_sentence += char
+        if current_sentence:
+            sentences.append(current_sentence)
+
+        for sentence in sentences:
+            preprocessed_sentence = preprocess_text(sentence)
+            sentiment = sentiment_analysis(preprocessed_sentence)
+            all_data.append([participant_id, question_id, sentence, preprocessed_sentence, sentiment])
+
+    return all_data
 
 
-def generate_dataframe(paragraphs):
-    """将处理后的段落生成DataFrame"""
-    df = pd.DataFrame({
-        'Paragraph': paragraphs
-    })
+def generate_dataframe(data):
+    """将处理后的数据生成DataFrame"""
+    columns = ['ParticipantID', 'QuestionID', 'SentenceText', 'PreprocessedSentence', 'Sentiment']
+    df = pd.DataFrame(data, columns=columns)
     return df
 
 
@@ -148,7 +173,8 @@ def save_to_csv(df, output_path='processed_data.csv'):
 
 if __name__ == "__main__":
     audio_path = "interview_audio.wav"  # 替换为你的访谈录音文件路径
-    processed_paragraphs = process_audio_file(audio_path)
-    df = generate_dataframe(processed_paragraphs)
+    participant_id = 1  # 替换为实际的参与者ID
+    processed_data = process_audio_file(audio_path, participant_id)
+    df = generate_dataframe(processed_data)
     save_to_csv(df)
     print("数据已成功保存为 processed_data.csv")
